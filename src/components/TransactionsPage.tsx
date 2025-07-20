@@ -255,16 +255,16 @@ export default function TransactionsPage() {
     '#60a5fa', '#38bdf8', '#818cf8', '#a78bfa', '#f472b6', '#fb7185', '#fbbf24', '#facc15', '#4ade80', '#22d3ee', '#10b981', '#eab308', '#6366f1', '#f43f5e', '#e5e7eb', '#a3e635', '#cbd5e1', '#f59e42', '#a3e635', '#f87171'
   ];
   const barColors = Object.keys(accountTotals).map((_, idx) => accountColors[idx % accountColors.length]);
+  const dynamicBarChartHeight = Math.max(300, Object.keys(accountTotals).length * 40);
   const accountBarData = {
     labels: Object.keys(accountTotals),
     datasets: [
       {
-        label: '', // Remove dataset label to prevent value display
+        label: '',
         data: Object.values(accountTotals),
         backgroundColor: barColors,
         borderRadius: 12,
-        barThickness: 32,
-        // No datalabels or value rendering
+        // Remove fixed barThickness for dynamic scaling
       },
     ],
   };
@@ -490,7 +490,7 @@ export default function TransactionsPage() {
               <div className="w-1/3 min-w-[20rem] flex-1 flex items-center justify-center">
                 <div className="w-full h-[30rem] border-2 border-gray-300 rounded-2xl shadow-lg p-6 flex flex-col">
                   <h2 className="text-lg font-semibold mb-4">Spending by Account</h2>
-                  <div className="flex-1 flex items-center justify-center">
+                  <div className="w-full" style={{ height: dynamicBarChartHeight }}>
                     <Bar
                       data={accountBarData}
                       options={{
@@ -507,7 +507,7 @@ export default function TransactionsPage() {
                             }
                           },
                           datalabels: {
-                            display: false // Explicitly disable datalabels inside bars
+                            display: false
                           }
                         },
                         hover: {
