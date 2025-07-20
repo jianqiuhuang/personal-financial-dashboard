@@ -7,6 +7,7 @@ import { Bar } from 'react-chartjs-2';
 import { Chart, ArcElement, Tooltip, Legend } from 'chart.js';
 import { CategoryScale, LinearScale, BarElement } from 'chart.js';
 import ChartDataLabels from 'chartjs-plugin-datalabels';
+import { useRouter, useSearchParams } from "next/navigation";
 Chart.register(ArcElement, Tooltip, Legend, CategoryScale, LinearScale, BarElement, ChartDataLabels);
 
 interface Transaction {
@@ -60,6 +61,8 @@ export default function TransactionsPage() {
     account: useRef<HTMLDivElement>(null),
     merchant: useRef<HTMLDivElement>(null),
   };
+  const router = useRouter();
+  const searchParams = typeof window !== "undefined" ? new URLSearchParams(window.location.search) : null;
 
   useEffect(() => {
     async function fetchTransactions() {
@@ -300,6 +303,79 @@ export default function TransactionsPage() {
       default: return "Date";
     }
   }
+
+  // Helper to encode filter state to query params
+  function encodeFiltersToQuery({ accountFilter, categoryFilter, merchantFilter, dateFilter, startDate, endDate }: {
+    accountFilter: string[];
+    categoryFilter: string[];
+    merchantFilter: string[];
+    dateFilter: string;
+    startDate: string;
+    endDate: string;
+  }): string {
+    const params = new URLSearchParams();
+    if (accountFilter.length > 0) params.set("accounts", accountFilter.join(","));
+    if (categoryFilter.length > 0) params.set("categories", categoryFilter.join(","));
+    if (merchantFilter.length > 0) params.set("merchants", merchantFilter.join(","));
+    if (dateFilter) params.set("dateFilter", dateFilter);
+    if (startDate) params.set("startDate", startDate);
+    if (endDate) params.set("endDate", endDate);
+    return params.toString();
+  }
+
+  // Helper to decode query params to filter state
+  function decodeFiltersFromQuery(params: URLSearchParams): {
+    accountFilter: string[];
+    categoryFilter: string[];
+    merchantFilter: string[];
+    dateFilter: string;
+    startDate: string;
+    endDate: string;
+  } {
+    return {
+      accountFilter: params.get("accounts") ? params.get("accounts")!.split(",") : [],
+      categoryFilter: params.get("categories") ? params.get("categories")!.split(",") : [],
+      merchantFilter: params.get("merchants") ? params.get("merchants")!.split(",") : [],
+      dateFilter: params.get("dateFilter") || "ytd",
+      startDate: params.get("startDate") || "",
+      endDate: params.get("endDate") || "",
+    };
+  }
+
+  // On initial load, restore filter state from URL
+  useEffect(() => {
+    if (!searchParams) return;
+    const filters = decodeFiltersFromQuery(searchParams);
+    if (filters.accountFilter.length) setAccountFilter(filters.accountFilter);
+    if (filters.categoryFilter.length) setCategoryFilter(filters.categoryFilter);
+    if (filters.merchantFilter.length) setMerchantFilter(filters.merchantFilter);
+    if (filters.dateFilter) setDateFilter(filters.dateFilter);
+    if (filters.startDate) setStartDate(filters.startDate);
+    if (filters.endDate) setEndDate(filters.endDate);
+  }, []);
+
+  // On filter change, update URL (pushState)
+  useEffect(() => {
+    const query = encodeFiltersToQuery({ accountFilter, categoryFilter, merchantFilter, dateFilter, startDate, endDate });
+    const url = query ? `/transactions?${query}` : "/transactions";
+    window.history.pushState({ filters: { accountFilter, categoryFilter, merchantFilter, dateFilter, startDate, endDate } }, "", url);
+  }, [accountFilter, categoryFilter, merchantFilter, dateFilter, startDate, endDate]);
+
+  // Listen for browser navigation (popstate) and restore filter state
+  useEffect(() => {
+    function onPopState(e: PopStateEvent) {
+      const params = new URLSearchParams(window.location.search);
+      const filters = decodeFiltersFromQuery(params);
+      setAccountFilter(filters.accountFilter);
+      setCategoryFilter(filters.categoryFilter);
+      setMerchantFilter(filters.merchantFilter);
+      setDateFilter(filters.dateFilter);
+      setStartDate(filters.startDate);
+      setEndDate(filters.endDate);
+    }
+    window.addEventListener("popstate", onPopState);
+    return () => window.removeEventListener("popstate", onPopState);
+  }, []);
 
   return (
     <div className="p-6">
@@ -595,21 +671,19 @@ export default function TransactionsPage() {
                         <ul className="space-y-2 overflow-y-auto" style={{ maxHeight: '100%' }}>
                           {Object.entries(categoryTotals)
                             .sort((a, b) => b[1] - a[1])
-                            .map(([cat, total], idx) => {
-                              return (
-                                <li
-                                  key={cat}
-                                  className={`flex items-center cursor-pointer rounded ${hoveredCategory === cat ? 'bg-blue-100' : ''}`}
-                                  onClick={() => setCategoryFilter([cat])}
-                                  onMouseEnter={() => setHoveredCategory(cat)}
-                                  onMouseLeave={() => setHoveredCategory(null)}
-                                >
-                                  <span className="inline-block w-3 h-3 rounded-full mr-2" style={{ backgroundColor: pieData.datasets[0].backgroundColor[pieData.labels.indexOf(cat)] }}></span>
-                                  <span className="truncate font-semibold text-sm">{cat}</span>
-                                  <span className="ml-auto text-sm font-semibold">${total.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
-                                </li>
-                              );
-                            })}
+                            .map(([cat, total], idx) => (
+                              <li
+                                key={cat}
+                                className={`flex items-center cursor-pointer rounded ${hoveredCategory === cat ? 'bg-blue-100' : ''}`}
+                                onClick={() => setCategoryFilter([cat])}
+                                onMouseEnter={() => setHoveredCategory(cat)}
+                                onMouseLeave={() => setHoveredCategory(null)}
+                              >
+                                <span className="inline-block w-3 h-3 rounded-full mr-2" style={{ backgroundColor: pieData.datasets[0].backgroundColor[pieData.labels.indexOf(cat)] }}></span>
+                                <span className="truncate font-semibold text-sm">{cat}</span>
+                                <span className="ml-auto text-sm font-semibold">${total.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+                              </li>
+                            ))}
                         </ul>
                       </div>
                     </div>
