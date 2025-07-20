@@ -13,7 +13,8 @@ export async function POST() {
       transactions: {
         days_requested: 730, // Request 2 years of data
       },
-      optional_products: [Products.Investments], // Make investments optional
+      // TODO: to enable investments, need to enable in Plaid dashboard first
+      // optional_products: [Products.Investments], // Make investments optional
     };
 
     const response = await plaidClient.linkTokenCreate(request);
@@ -25,4 +26,8 @@ export async function POST() {
       { status: 500 }
     );
   }
+}
+
+export async function GET() {
+  return POST();
 }
