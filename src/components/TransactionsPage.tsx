@@ -1,6 +1,6 @@
 "use client";
 import Link from "next/link";
-import React, { useEffect, useRef, useState } from "react";
+import React, { useEffect, useRef, useState, useMemo } from "react";
 import { FunnelIcon } from "@heroicons/react/24/solid";
 import { Pie } from 'react-chartjs-2';
 import { Bar } from 'react-chartjs-2';
@@ -34,18 +34,14 @@ const categoryOptions = [
 ].sort();
 
 export default function TransactionsPage() {
+  // --- State ---
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [loading, setLoading] = useState(true);
   const [startDate, setStartDate] = useState("");
   const [endDate, setEndDate] = useState("");
-  const [account, setAccount] = useState("");
   const [categoryFilter, setCategoryFilter] = useState<string[]>([]);
-  const [merchant, setMerchant] = useState("");
   const [merchantFilter, setMerchantFilter] = useState<string[]>([]);
   const [accountFilter, setAccountFilter] = useState<string[]>([]);
-  const [accounts, setAccounts] = useState<string[]>([]);
-  const [categories, setCategories] = useState<string[]>([]);
-  const [merchants, setMerchants] = useState<string[]>([]);
   const [sortBy, setSortBy] = useState<string>("");
   const [sortOrder, setSortOrder] = useState<"asc" | "desc">("asc");
   const [dateFilter, setDateFilter] = useState("ytd");
@@ -53,9 +49,7 @@ export default function TransactionsPage() {
   const [merchantDropdownOpen, setMerchantDropdownOpen] = useState(false);
   const [accountDropdownOpen, setAccountDropdownOpen] = useState(false);
   const [dateDropdownOpen, setDateDropdownOpen] = useState(false);
-  const [categoryListExpanded, setCategoryListExpanded] = useState(false);
   const [hoveredCategory, setHoveredCategory] = useState<string | null>(null);
-  const categoryDropdownRef = useRef<HTMLDivElement>(null);
   const dropdownRefs = {
     category: useRef<HTMLDivElement>(null),
     account: useRef<HTMLDivElement>(null),
@@ -64,6 +58,7 @@ export default function TransactionsPage() {
   const router = useRouter();
   const searchParams = typeof window !== "undefined" ? new URLSearchParams(window.location.search) : null;
 
+  // --- Fetch transactions ---
   useEffect(() => {
     async function fetchTransactions() {
       const res = await fetch("/api/accounts/transactions");
@@ -76,38 +71,16 @@ export default function TransactionsPage() {
     fetchTransactions();
   }, []);
 
-  useEffect(() => {
-    setAccounts(Array.from(new Set(transactions.map((tx: Transaction) => tx.accountName).filter(Boolean))) as string[]);
-    setCategories(Array.from(new Set(transactions.map((tx: Transaction) => tx.personalFinanceCategory).filter(Boolean))) as string[]);
-    setMerchants(Array.from(new Set(transactions.map((tx: Transaction) => tx.merchant).filter(Boolean))) as string[]);
-  }, [transactions]);
+  // --- Derived filter options ---
+  const dynamicAccounts = useMemo(() => Array.from(new Set(transactions.map(tx => tx.accountName).filter((x): x is string => Boolean(x)))).sort(), [transactions]);
+  const dynamicCategories = useMemo(() => Array.from(new Set(transactions.map(tx => tx.personalFinanceCategory).filter((x): x is string => Boolean(x)))).sort(), [transactions]);
+  const dynamicMerchants = useMemo(() => Array.from(new Set(transactions.map(tx => tx.merchant && tx.merchant.trim() !== "" ? tx.merchant : "(No Merchant)").filter((x): x is string => Boolean(x)))).sort(), [transactions]);
 
-  const handleCategoryChange = async (id: string, newCategory: string) => {
-    await fetch(`/api/accounts/transactions/${id}/category`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ category: newCategory }),
-    });
-    // Refetch transactions after update
-    const res = await fetch("/api/accounts/transactions");
-    if (res.ok) {
-      const data = await res.json();
-      setTransactions(data.transactions || []);
-    }
-  };
-
-  const handleCategoryFilterChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
-    const selected = Array.from(e.target.selectedOptions).map(opt => opt.value);
-    setCategoryFilter(selected);
-  };
-
-  const filteredTransactions = transactions.filter(tx => {
+  // --- Filtered transactions ---
+  const filteredTransactions = useMemo(() => transactions.filter(tx => {
     let match = true;
-    // Merchant filter
     if (merchantFilter.length > 0 && !merchantFilter.includes(tx.merchant && tx.merchant.trim() !== "" ? tx.merchant : "(No Merchant)")) match = false;
-    // Account filter
     if (accountFilter.length > 0 && !accountFilter.includes(tx.accountName || "")) match = false;
-    // Date filter logic
     const txDateObj = new Date(tx.date);
     const now = new Date();
     if (dateFilter === "ytd") {
@@ -128,13 +101,7 @@ export default function TransactionsPage() {
         if (txDateObj.getFullYear() !== year || txDateObj.getMonth() !== month) match = false;
       }
     }
-    if (account && tx.accountName !== account) match = false;
     if (categoryFilter.length > 0 && !categoryFilter.includes(tx.personalFinanceCategory || "")) match = false;
-    if (merchant) {
-      if (merchant === "__EMPTY__") {
-        if (tx.merchant && tx.merchant !== "") match = false;
-      } else if (tx.merchant !== merchant) match = false;
-    }
     if (startDate) {
       const sDate = new Date(startDate);
       if (txDateObj < sDate) match = false;
@@ -144,12 +111,52 @@ export default function TransactionsPage() {
       if (txDateObj > eDate) match = false;
     }
     return match;
-  });
+  }), [transactions, accountFilter, categoryFilter, merchantFilter, dateFilter, startDate, endDate]);
 
-  // Dynamic filter options based on all transactions, not filteredTransactions
-  const dynamicAccounts = Array.from(new Set(transactions.map((tx: Transaction) => tx.accountName).filter(Boolean))).sort() as string[];
-  const dynamicCategories = Array.from(new Set(transactions.map((tx: Transaction) => tx.personalFinanceCategory).filter(Boolean))).sort() as string[];
-  const dynamicMerchants = Array.from(new Set(transactions.map((tx: Transaction) => tx.merchant && tx.merchant.trim() !== "" ? tx.merchant : "(No Merchant)").filter(Boolean))).sort() as string[];
+  // --- Chart data ---
+  const categoryTotals = useMemo(() => {
+    const totals: { [cat: string]: number } = {};
+    filteredTransactions.forEach(tx => {
+      const cat = tx.personalFinanceCategory || "Uncategorized";
+      totals[cat] = (totals[cat] || 0) + tx.amount;
+    });
+    return totals;
+  }, [filteredTransactions]);
+  const accountTotals = useMemo(() => {
+    const totals: { [acc: string]: number } = {};
+    filteredTransactions.forEach(tx => {
+      const acc = tx.accountName || "Uncategorized";
+      totals[acc] = (totals[acc] || 0) + tx.amount;
+    });
+    return totals;
+  }, [filteredTransactions]);
+
+  // --- Set all filters to select all by default ---
+  useEffect(() => {
+    const defaultCategories = dynamicCategories.filter(cat => cat !== 'LOAN_PAYMENTS');
+    setAccountFilter(dynamicAccounts);
+    setCategoryFilter(defaultCategories);
+    setMerchantFilter(dynamicMerchants);
+  }, [dynamicAccounts, dynamicCategories, dynamicMerchants]);
+
+  const handleCategoryChange = async (id: string, newCategory: string) => {
+    await fetch(`/api/accounts/transactions/${id}/category`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ category: newCategory }),
+    });
+    // Refetch transactions after update
+    const res = await fetch("/api/accounts/transactions");
+    if (res.ok) {
+      const data = await res.json();
+      setTransactions(data.transactions || []);
+    }
+  };
+
+  const handleCategoryFilterChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
+    const selected = Array.from(e.target.selectedOptions).map(opt => opt.value);
+    setCategoryFilter(selected);
+  };
 
   const handleSort = (column: string) => {
     if (sortBy === column) {
@@ -227,13 +234,6 @@ export default function TransactionsPage() {
   };
 
   // Pie chart data preparation
-  const categoryTotals: { [cat: string]: number } = {};
-  filteredTransactions.forEach(tx => {
-    const cat = tx.personalFinanceCategory || "Uncategorized";
-    // Use the signed value, not absolute value
-    categoryTotals[cat] = (categoryTotals[cat] || 0) + tx.amount;
-  });
-  const totalSpending = Object.values(categoryTotals).reduce((sum, v) => sum + v, 0);
   const pieData = {
     labels: Object.keys(categoryTotals),
     datasets: [
@@ -248,37 +248,19 @@ export default function TransactionsPage() {
   };
 
   // Account spending data for bar chart
-  const accountTotals: { [acc: string]: number } = {};
-  filteredTransactions.forEach(tx => {
-    const acc = tx.accountName || "Uncategorized";
-    accountTotals[acc] = (accountTotals[acc] || 0) + tx.amount;
-  });
-  // Elegant color palette for bars
-  const accountColors = [
-    '#60a5fa', '#38bdf8', '#818cf8', '#a78bfa', '#f472b6', '#fb7185', '#fbbf24', '#facc15', '#4ade80', '#22d3ee', '#10b981', '#eab308', '#6366f1', '#f43f5e', '#e5e7eb', '#a3e635', '#cbd5e1', '#f59e42', '#a3e635', '#f87171'
-  ];
-  const barColors = Object.keys(accountTotals).map((_, idx) => accountColors[idx % accountColors.length]);
-  const dynamicBarChartHeight = Math.max(300, Object.keys(accountTotals).length * 40);
   const accountBarData = {
     labels: Object.keys(accountTotals),
     datasets: [
       {
         label: '',
         data: Object.values(accountTotals),
-        backgroundColor: barColors,
+        backgroundColor: Object.keys(accountTotals).map((_, idx) => ['#60a5fa', '#38bdf8', '#818cf8', '#a78bfa', '#f472b6', '#fb7185', '#fbbf24', '#facc15', '#4ade80', '#22d3ee', '#10b981', '#eab308', '#6366f1', '#f43f5e', '#e5e7eb', '#a3e635', '#cbd5e1', '#f59e42', '#a3e635', '#f87171'][idx % 20]),
         borderRadius: 12,
-        // Remove fixed barThickness for dynamic scaling
       },
     ],
   };
 
-  // Set all filters to select all by default
-  useEffect(() => {
-    const defaultCategories = dynamicCategories.filter(cat => cat !== 'LOAN_PAYMENTS');
-    setAccountFilter(dynamicAccounts);
-    setCategoryFilter(defaultCategories);
-    setMerchantFilter(dynamicMerchants);
-  }, [accounts, categories, merchants]);
+  const dynamicBarChartHeight = Math.max(300, Object.keys(accountTotals).length * 40);
 
   // Pie chart click handler
   const handlePieClick = (elements: any[]) => {
